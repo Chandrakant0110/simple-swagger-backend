@@ -56,4 +56,7 @@ const authenticate = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate }; 
+module.exports = { 
+  authenticate,
+  verifyToken: authenticate 
+}; 

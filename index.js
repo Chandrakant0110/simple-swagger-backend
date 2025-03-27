@@ -11,6 +11,7 @@ dotenv.config();
 const helloRoutes = require('./routes/hello');
 const userRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
+const aiRoutes = require('./routes/ai');
 
 // Initialize express app
 const app = express();
@@ -87,6 +88,7 @@ app.get('/', (req, res) => {
 app.use('/api/hello', helloRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/ai', aiRoutes);
 
 // 404 handler
 app.use((req, res, next) => {

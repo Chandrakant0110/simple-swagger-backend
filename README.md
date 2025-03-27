@@ -140,6 +140,38 @@ router.get('/protected', authenticate, (req, res) => {
 });
 ```
 
+## Logging System
+
+The backend includes a comprehensive logging system with the following features:
+
+- Console and file logging
+- HTTP request/response logging
+- Error tracking
+- AI model operation logging
+- Performance metrics
+
+### Log Files
+
+Logs are stored in the `logs` directory:
+- `combined.log` - Contains all logs
+- `error.log` - Contains only error logs
+
+### Log Levels
+
+You can configure the log level in the .env file:
+```
+LOG_LEVEL=info  # Options: debug, info, warn, error
+```
+
+### What Gets Logged
+
+- API requests (endpoint, method, status code, duration)
+- API responses with timing metrics
+- Request bodies (with sensitive data masked)
+- AI model requests and responses
+- Application errors with stack traces
+- Application startup and configuration
+
 ## License
 
 ISC 

@@ -1,7 +1,10 @@
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
+const aiLogger = require('./aiLogger');
+const logger = require('./logger');
 
 // Initialize the Google Generative AI with API key
 const googleAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+logger.info('Google Generative AI initialized');
 
 // In-memory store for chat sessions
 const chatSessions = new Map();
@@ -46,6 +49,12 @@ async function generateText(prompt, options = {}) {
       },
     ];
     
+    // Log model request
+    const requestData = { prompt, ...options };
+    aiLogger.logModelRequest('generateText', requestData, modelName);
+    
+    const startTime = Date.now();
+    
     // Generate content
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -53,14 +62,20 @@ async function generateText(prompt, options = {}) {
       safetySettings,
     });
     
+    const duration = Date.now() - startTime;
     const response = result.response;
-    
-    return {
+    const responseData = {
       text: response.text(),
       promptFeedback: response.promptFeedback,
     };
+    
+    // Log model response
+    aiLogger.logModelResponse('generateText', responseData, modelName, duration);
+    
+    return responseData;
   } catch (error) {
-    console.error('Error generating text:', error);
+    // Log model error
+    aiLogger.logModelError('generateText', error, options.model || 'gemini-pro', { prompt, ...options });
     throw error;
   }
 }
@@ -111,6 +126,12 @@ async function generateChatResponse(messages, options = {}) {
       },
     ];
     
+    // Log model request
+    const requestData = { messages, ...options };
+    aiLogger.logModelRequest('generateChatResponse', requestData, modelName);
+    
+    const startTime = Date.now();
+    
     // Generate content
     const chat = model.startChat({
       generationConfig,
@@ -121,12 +142,19 @@ async function generateChatResponse(messages, options = {}) {
     const lastMessage = formattedMessages[formattedMessages.length - 1];
     const result = await chat.sendMessage(lastMessage.parts[0].text);
     
-    return {
+    const duration = Date.now() - startTime;
+    const responseData = {
       text: result.response.text(),
       promptFeedback: result.response.promptFeedback,
     };
+    
+    // Log model response
+    aiLogger.logModelResponse('generateChatResponse', responseData, modelName, duration);
+    
+    return responseData;
   } catch (error) {
-    console.error('Error generating chat response:', error);
+    // Log model error
+    aiLogger.logModelError('generateChatResponse', error, options.model || 'gemini-pro', { messages, ...options });
     throw error;
   }
 }
@@ -213,6 +241,12 @@ async function generateChatSessionResponse(sessionId, message, options = {}) {
     // Fix model name if provided
     let modelName = options.model || 'gemini-pro';
     
+    // Log model request
+    const requestData = { sessionId, message, ...options };
+    aiLogger.logModelRequest('generateChatSessionResponse', requestData, modelName, sessionId);
+    
+    const startTime = Date.now();
+    
     // Get or create chat session
     const session = getChatSession(sessionId, modelName, options);
     
@@ -224,13 +258,21 @@ async function generateChatSessionResponse(sessionId, message, options = {}) {
     session.history.push({ role: 'user', content: message });
     session.history.push({ role: 'model', content: responseText });
     
-    return {
+    const duration = Date.now() - startTime;
+    const responseData = {
       text: responseText,
       promptFeedback: result.response.promptFeedback,
       history: session.history
     };
+    
+    // Log model response
+    aiLogger.logModelResponse('generateChatSessionResponse', responseData, modelName, duration, sessionId);
+    
+    return responseData;
   } catch (error) {
-    console.error('Error generating chat session response:', error);
+    // Log model error
+    aiLogger.logModelError('generateChatSessionResponse', error, options.model || 'gemini-pro', 
+      { sessionId, message, ...options }, sessionId);
     throw error;
   }
 }

@@ -3,6 +3,9 @@ const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@googl
 // Initialize the Google Generative AI with API key
 const googleAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
+// In-memory store for chat sessions
+const chatSessions = new Map();
+
 /**
  * Generate text from prompt using Google's Generative AI (Gemini)
  * @param {string} prompt - The user's input prompt
@@ -128,7 +131,225 @@ async function generateChatResponse(messages, options = {}) {
   }
 }
 
+/**
+ * Create or retrieve a chat session
+ * @param {string} sessionId - Unique identifier for the chat session
+ * @param {string} modelName - Model to use for the chat
+ * @param {object} config - Configuration for the chat
+ * @returns {object} - Chat session object
+ */
+function getChatSession(sessionId, modelName = 'gemini-pro', config = {}) {
+  if (!chatSessions.has(sessionId)) {
+    const model = googleAI.getGenerativeModel({ model: modelName });
+    
+    // Set generation config
+    const generationConfig = {
+      temperature: config.temperature || 0.7,
+      topK: config.topK || 40,
+      topP: config.topP || 0.95,
+      maxOutputTokens: config.maxTokens || 2048,
+    };
+    
+    // Configure safety settings
+    const safetySettings = [
+      {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+      },
+    ];
+    
+    // Create a new chat session
+    const chat = model.startChat({
+      generationConfig,
+      safetySettings,
+      history: []
+    });
+    
+    // Store session info
+    chatSessions.set(sessionId, {
+      chat,
+      model: modelName,
+      history: [],
+      lastUsed: Date.now()
+    });
+    
+    // Schedule cleanup for old sessions (24 hours of inactivity)
+    setTimeout(() => {
+      const session = chatSessions.get(sessionId);
+      if (session && Date.now() - session.lastUsed > 24 * 60 * 60 * 1000) {
+        chatSessions.delete(sessionId);
+      }
+    }, 24 * 60 * 60 * 1000);
+  }
+  
+  // Update last used timestamp
+  const session = chatSessions.get(sessionId);
+  session.lastUsed = Date.now();
+  
+  return session;
+}
+
+/**
+ * Generate a chat response from an existing chat session
+ * @param {string} sessionId - Unique identifier for the chat session
+ * @param {string} message - The new user message
+ * @param {object} options - Optional parameters for the model
+ * @returns {Promise<object>} - The generated response and updated history
+ */
+async function generateChatSessionResponse(sessionId, message, options = {}) {
+  try {
+    // Fix model name if provided
+    let modelName = options.model || 'gemini-pro';
+    
+    // Get or create chat session
+    const session = getChatSession(sessionId, modelName, options);
+    
+    // Send the message to the chat
+    const result = await session.chat.sendMessage(message);
+    const responseText = result.response.text();
+    
+    // Update history
+    session.history.push({ role: 'user', content: message });
+    session.history.push({ role: 'model', content: responseText });
+    
+    return {
+      text: responseText,
+      promptFeedback: result.response.promptFeedback,
+      history: session.history
+    };
+  } catch (error) {
+    console.error('Error generating chat session response:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get chat history for a session
+ * @param {string} sessionId - Chat session ID
+ * @returns {Array} - Chat history or empty array if session not found
+ */
+function getChatHistory(sessionId) {
+  const session = chatSessions.get(sessionId);
+  return session ? session.history : [];
+}
+
+/**
+ * Get list of available models from Google Generative AI
+ * @returns {Promise<Array>} - Array of available model information
+ */
+async function listModels() {
+  try {
+    // The Google Generative AI library doesn't support listModels directly
+    // Using a comprehensive list of models instead
+    return [
+      // Gemini 2.5 models (newest)
+      {
+        name: 'gemini-2.5-pro-exp-03-25',
+        displayName: 'Gemini 2.5 Pro Experimental',
+        description: 'Latest experimental version of Gemini 2.5 Pro with enhanced capabilities',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      {
+        name: 'gemini-2.5-pro',
+        displayName: 'Gemini 2.5 Pro',
+        description: 'Latest flagship model with significantly improved reasoning, instruction following, and coding capabilities',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      // Gemini 2.0 models
+      {
+        name: 'gemini-2.0-flash-thinking-exp',
+        displayName: 'Gemini 2.0 Flash Thinking Experimental',
+        description: 'Experimental model with enhanced reasoning capabilities for complex problems',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      {
+        name: 'gemini-2.0-flash',
+        displayName: 'Gemini 2.0 Flash',
+        description: 'Fast and efficient model balancing quality and speed for general use cases',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      {
+        name: 'gemini-2.0-pro',
+        displayName: 'Gemini 2.0 Pro',
+        description: 'Advanced model with strong reasoning and instruction following capabilities',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      // Gemini 1.5 models
+      {
+        name: 'gemini-1.5-pro',
+        displayName: 'Gemini 1.5 Pro',
+        description: 'Capable model for complex tasks, supporting input/output up to 1 million tokens',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      {
+        name: 'gemini-1.5-flash',
+        displayName: 'Gemini 1.5 Flash',
+        description: 'Balanced model for scalable use, supporting input up to 1 million tokens with fast responses',
+        inputTokenLimit: 1000000,
+        outputTokenLimit: 8192,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      // Gemini 1.0 models
+      {
+        name: 'gemini-pro',
+        displayName: 'Gemini Pro',
+        description: 'Text-only model that is optimized for instruction following, programming, and reasoning',
+        inputTokenLimit: 30720,
+        outputTokenLimit: 2048,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'embedContent', 'streamGenerateContent']
+      },
+      {
+        name: 'gemini-pro-vision',
+        displayName: 'Gemini Pro Vision',
+        description: 'Multimodal model for image understanding with text reasoning capabilities',
+        inputTokenLimit: 12288,
+        outputTokenLimit: 4096,
+        supportedGenerationMethods: ['generateContent', 'countTokens', 'streamGenerateContent']
+      },
+      // Other models
+      {
+        name: 'models/embedding-001',
+        displayName: 'Embedding-001',
+        description: 'Model for creating text embeddings for semantic search and recommendations',
+        inputTokenLimit: 2048,
+        outputTokenLimit: null,
+        supportedGenerationMethods: ['embedContent']
+      }
+    ];
+  } catch (error) {
+    console.error('Error listing models:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   generateText,
   generateChatResponse,
+  generateChatSessionResponse,
+  getChatHistory,
+  listModels
 }; 
